@@ -1,0 +1,35 @@
+# Dockerfile
+FROM python:3.11-slim
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Working directory
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+# Expose multiple ports
+EXPOSE 80
+EXPOSE 5000
+EXPOSE 8000
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+uvicorn main:app --host 0.0.0.0 --port 80 &\n\
+uvicorn main:app --host 0.0.0.0 --port 5000 &\n\
+uvicorn main:app --host 0.0.0.0 --port 8000 &\n\
+wait' > /app/start.sh && chmod +x /app/start.sh
+
+# Run multiple instances
+CMD ["/app/start.sh"]
