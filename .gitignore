@@ -1,6 +1,7 @@
 # Environment files
 .env
 pass.txt
+key.json
 
 # Python
 __pycache__/

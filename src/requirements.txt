@@ -18,3 +18,5 @@ aiofiles==24.1.0
 # Audio processing (Agent için)
 # librosa
 # numpy
+
+firebase-admin==6.4.0
