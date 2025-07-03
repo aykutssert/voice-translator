@@ -649,6 +649,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from pydantic import BaseModel
 from enum import Enum
+import json
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -838,12 +840,31 @@ async def initialize_services():
         logger.error(f"Failed to initialize OpenAI: {e}")
         raise
 
+# def initialize_firebase():
+#     """Initialize Firebase Admin SDK"""
+#     try:
+#         if not firebase_admin._apps:
+#             cred = credentials.Certificate("key.json")
+#             firebase_admin.initialize_app(cred)
+#         global db
+#         db = firestore.client()
+#         logger.info("Firebase initialized")
+#     except Exception as e:
+#         logger.error(f"Firebase initialization failed: {e}")
+#         raise
 def initialize_firebase():
     """Initialize Firebase Admin SDK"""
     try:
         if not firebase_admin._apps:
-            cred = credentials.Certificate("key.json")
+            encoded = os.getenv("FIREBASE_CREDENTIALS")
+            if not encoded:
+                raise ValueError("FIREBASE_CREDENTIALS env var not found")
+
+            decoded_bytes = base64.b64decode(encoded)
+            cred_dict = json.load(BytesIO(decoded_bytes))
+            cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
+        
         global db
         db = firestore.client()
         logger.info("Firebase initialized")
