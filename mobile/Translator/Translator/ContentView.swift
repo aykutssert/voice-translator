@@ -25,6 +25,9 @@ struct ContentView: View {
     @State private var recordingGuidance: String = ""
     @State private var showRecordingFeedback = false
     @State private var buttonPressed = false
+    @State private var dragOffset: CGSize = .zero
+    @State private var showCancelHint = false
+    
     
     var body: some View {
         ZStack {
@@ -302,7 +305,14 @@ struct ContentView: View {
                             )
                     )
                 }
-            }
+            }.gesture(DragGesture().onEnded({
+                value in
+                if abs(value.translation.width) > 100 {
+                                if value.translation.width > 0 {
+                                    quickLanguageSwap() // Sağa swipe = swap
+                                }
+                            }
+            }))
             
             // Quick language pairs
             if !languageManager.recentDirections.isEmpty {
@@ -537,24 +547,60 @@ struct ContentView: View {
                         .foregroundColor(voiceRecorder.recordingQuality.color)
                         .fontWeight(.medium)
                         .animation(.easeInOut, value: recordingGuidance)
+                    
+                    // Cancel hint with animation
+                    if showCancelHint {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                            Text("Release here to cancel")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .fontWeight(.semibold)
+                        }
+                        .transition(.opacity.combined(with: .scale))
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showCancelHint)
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up")
+                                .foregroundColor(.white.opacity(0.4))
+                                .font(.caption2)
+                            Text("Drag up to cancel")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                        .transition(.opacity)
+                    }
                 }
                 .transition(.opacity.combined(with: .scale))
             }
             
-            // Optimized Microphone Button with Instant Feedback
+            // Optimized Microphone Button with Cancel Feature
             Button(action: {}) {
                 ZStack {
+                    // Cancel zone indicator
+                    if recordingActive && showCancelHint {
+                        Circle()
+                            .stroke(.red, lineWidth: 6)
+                            .frame(width: 180, height: 180)
+                            .opacity(0.4)
+                            .scaleEffect(1.1)
+                            .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: showCancelHint)
+                    }
+                    
                     // Outer Ring with instant feedback
                     Circle()
-                        .stroke(recordingActive ? .red : optimizedButtonColor, lineWidth: 4)
+                        .stroke(recordingActive ? (showCancelHint ? .red : .red) : optimizedButtonColor, lineWidth: 4)
                         .frame(width: 130, height: 130)
                         .scaleEffect(recordingActive ? 1.15 : (buttonPressed ? 1.05 : 1.0))
                         .opacity(recordingActive ? 0.8 : 1.0)
                         .animation(.spring(response: 0.2, dampingFraction: 0.6), value: recordingActive)
                         .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
+                        .animation(.easeInOut(duration: 0.3), value: showCancelHint)
                     
                     // Dynamic ripple effects during recording
-                    if recordingActive {
+                    if recordingActive && !showCancelHint {
                         ForEach(0..<3, id: \.self) { index in
                             Circle()
                                 .stroke(.red.opacity(0.4 - Double(index) * 0.1), lineWidth: 3)
@@ -566,7 +612,7 @@ struct ContentView: View {
                     }
                     
                     // Audio level visualization
-                    if recordingActive && voiceRecorder.recordingLevel > 0.1 {
+                    if recordingActive && voiceRecorder.recordingLevel > 0.1 && !showCancelHint {
                         Circle()
                             .fill(.red.opacity(0.15 + Double(voiceRecorder.recordingLevel) * 0.1))
                             .frame(width: 100 + CGFloat(voiceRecorder.recordingLevel * 30), height: 100 + CGFloat(voiceRecorder.recordingLevel * 30))
@@ -578,8 +624,8 @@ struct ContentView: View {
                         .fill(
                             RadialGradient(
                                 gradient: Gradient(colors: [
-                                    recordingActive ? .red : optimizedButtonColor,
-                                    recordingActive ? .red.opacity(0.7) : optimizedButtonColor.opacity(0.7)
+                                    recordingActive ? (showCancelHint ? .red : .red) : optimizedButtonColor,
+                                    recordingActive ? (showCancelHint ? .red.opacity(0.8) : .red.opacity(0.7)) : optimizedButtonColor.opacity(0.7)
                                 ]),
                                 center: .center,
                                 startRadius: 5,
@@ -589,25 +635,37 @@ struct ContentView: View {
                         .frame(width: 110, height: 110)
                         .scaleEffect(recordingActive ? 0.95 : (buttonPressed ? 0.97 : 1.0))
                         .shadow(
-                            color: recordingActive ? .red.opacity(0.5) : optimizedButtonColor.opacity(0.3),
+                            color: recordingActive ? (showCancelHint ? .red.opacity(0.7) : .red.opacity(0.5)) : optimizedButtonColor.opacity(0.3),
                             radius: buttonPressed ? 15 : 10,
                             x: 0,
                             y: buttonPressed ? 8 : 5
                         )
                         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: recordingActive)
                         .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
+                        .animation(.easeInOut(duration: 0.3), value: showCancelHint)
                     
                     // Icon with smooth transitions
                     ZStack {
                         if recordingActive {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 42, weight: .bold))
-                                .foregroundColor(.white)
-                                .scaleEffect(1.4)
-                                .transition(.asymmetric(
-                                    insertion: .scale.combined(with: .opacity),
-                                    removal: .scale.combined(with: .opacity)
-                                ))
+                            if showCancelHint {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 35, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .scaleEffect(1.2)
+                                    .transition(.asymmetric(
+                                        insertion: .scale.combined(with: .opacity),
+                                        removal: .scale.combined(with: .opacity)
+                                    ))
+                            } else {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 42, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .scaleEffect(1.4)
+                                    .transition(.asymmetric(
+                                        insertion: .scale.combined(with: .opacity),
+                                        removal: .scale.combined(with: .opacity)
+                                    ))
+                            }
                         } else {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 40, weight: .bold))
@@ -619,30 +677,57 @@ struct ContentView: View {
                         }
                     }
                     .animation(.spring(response: 0.3, dampingFraction: 0.6), value: recordingActive)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: showCancelHint)
                 }
             }
             .scaleEffect(recordingActive ? 1.03 : (buttonPressed ? 1.01 : 1.0))
+            .offset(y: recordingActive ? min(dragOffset.height * 0.3, 0) : 0) // Only allow upward movement
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: recordingActive)
             .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: dragOffset)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
+                    .onChanged { value in
+                        // Update drag offset for visual feedback
+                        dragOffset = value.translation
+                        
+                        // Check if dragging up for cancel
+                        if value.translation.height < -50 {
+                            if !showCancelHint {
+                                showCancelHint = true
+                                let feedback = UIImpactFeedbackGenerator(style: .light)
+                                feedback.impactOccurred()
+                            }
+                        } else {
+                            showCancelHint = false
+                        }
+                        
+                        // Start recording on first touch
                         if !buttonPressed {
                             animateButtonPress()
                         }
                         
-                        if canRecordInstantly && !voiceRecorder.isRecording {
+                        if canRecordInstantly && !voiceRecorder.isRecording && abs(value.translation.height) < 20 {
                             Task {
                                 await voiceRecorder.beginRecording()
                             }
                         }
                     }
-                    .onEnded { _ in
-                        animateButtonRelease()
-                        
-                        if voiceRecorder.isRecording {
+                    .onEnded { value in
+                        // Check for cancel gesture (drag up)
+                        if value.translation.height < -100 {
+                            // CANCEL RECORDING
+                            voiceRecorder.cancelRecording()
+                            print("🚫 Recording cancelled via drag up gesture")
+                        } else if voiceRecorder.isRecording {
+                            // NORMAL END RECORDING
                             voiceRecorder.endRecording()
                         }
+                        
+                        // Reset UI state
+                        animateButtonRelease()
+                        dragOffset = .zero
+                        showCancelHint = false
                     }
             )
             .onTapGesture {
@@ -738,7 +823,7 @@ struct ContentView: View {
     }
     
     private var connectionStatusIndicator: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if networkManager.hasInternet {
                 if networkManager.serverHealth {
                     Image(systemName: "checkmark.circle.fill")
@@ -764,6 +849,7 @@ struct ContentView: View {
                         .foregroundColor(.orange)
                 }
             }
+       
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
@@ -794,11 +880,13 @@ struct ContentView: View {
     }
     
     private var optimizedStatusText: String {
-        if recordingActive {
-            return "Release to Translate"
-        } else if !voiceRecorder.microphonePermission {
-            return "Microphone Access Required"
-        } else if !networkManager.hasInternet {
+        if voiceRecorder.recordingCancelled {
+                return "Recording Cancelled"
+            } else if recordingActive {
+                return showCancelHint ? "Release here to cancel" : "Release to Translate"
+            } else if !voiceRecorder.microphonePermission {
+                return "Microphone Access Required"
+            }else if !networkManager.hasInternet {
             return "Internet Connection Required"
         } else if !networkManager.serverHealth {
             return "Connecting to Server..."
@@ -862,24 +950,25 @@ struct ContentView: View {
     
     private func setupOptimizedRecordingCallback() {
         voiceRecorder.recordingCompleted = { [networkManager] audioData, metrics in
-            guard let data = audioData else {
-                print("⚠️ No audio data")
-                return
-            }
-            
-            Task { @MainActor in
-                lastTranslationMetrics = metrics
+                // YENİ: Nil check for cancellation
+                guard let data = audioData else {
+                    print("⚠️ No audio data - recording was cancelled or failed")
+                    return
+                }
                 
-                // Optimized audio transmission with pre-flight check
-                let canTransmit = await networkManager.checkInternetBeforeTransmission()
-                if canTransmit {
-                    networkManager.transmitAudio(data)
-                } else {
-                    networkManager.targetResult = "Error: Cannot connect to translation server. Please check your connection."
-                    networkManager.processing = false
+                Task { @MainActor in
+                    lastTranslationMetrics = metrics
+                    
+                    // Optimized audio transmission with pre-flight check
+                    let canTransmit = await networkManager.checkInternetBeforeTransmission()
+                    if canTransmit {
+                        networkManager.transmitAudio(data)
+                    } else {
+                        networkManager.targetResult = "Error: Cannot connect to translation server. Please check your connection."
+                        networkManager.processing = false
+                    }
                 }
             }
-        }
         
         voiceRecorder.serverCheckFailed = { errorMessage in
             print("❌ Recording failed: \(errorMessage)")
@@ -1022,14 +1111,14 @@ struct ContentView: View {
     // MARK: - Enhanced Animations
     
     private func animateButtonPress() {
-        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        let feedback = UIImpactFeedbackGenerator(style: .heavy)
         feedback.prepare()
         
         withAnimation(.spring(response: 0.15, dampingFraction: 0.8)) {
             buttonPressed = true
         }
         
-        feedback.impactOccurred()
+        feedback.impactOccurred(intensity: 1.0)
     }
     
     private func animateButtonRelease() {

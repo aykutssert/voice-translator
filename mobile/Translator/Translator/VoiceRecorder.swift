@@ -16,6 +16,7 @@ class VoiceRecorder: NSObject, ObservableObject {
     // Pre-configured audio session for instant start
     private var isAudioSessionReady = false
     private var preConfiguredAudioFile: URL?
+    private let cancelThreshold: CGFloat = 100.0
     
     @Published var isRecording = false
     @Published var microphonePermission = false
@@ -23,7 +24,9 @@ class VoiceRecorder: NSObject, ObservableObject {
     @Published var recordingDuration: TimeInterval = 0.0
     @Published var recordingQuality: RecordingQuality = .silent
     @Published var canFinishRecording = false
+    @Published var recordingCancelled = false
     @Published var serverCheckPassed = false
+    
     
     // Optimized visual feedback
     @Published var showWarningColor = false
@@ -143,6 +146,29 @@ class VoiceRecorder: NSObject, ObservableObject {
             }
         }
     }
+    
+    func cancelRecording() {
+            print("🚫 Recording cancelled by user")
+            
+            recordingCancelled = true
+            let wasRecording = isRecording
+            forceStopRecording()
+            
+            if wasRecording {
+                // Haptic feedback for cancellation
+                let feedback = UINotificationFeedbackGenerator()
+                feedback.notificationOccurred(.warning)
+                
+                // Callback with nil to indicate cancellation
+                recordingCompleted?(nil, nil)
+            }
+            
+            // Reset cancel state after a short delay
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                recordingCancelled = false
+            }
+        }
     
     private func prepareAudioRecording() {
         // Pre-create audio file URL for instant use
