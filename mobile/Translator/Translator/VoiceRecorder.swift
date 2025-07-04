@@ -25,7 +25,7 @@ class VoiceRecorder: NSObject, ObservableObject {
     @Published var recordingQuality: RecordingQuality = .silent
     @Published var canFinishRecording = false
     @Published var recordingCancelled = false
-    @Published var serverCheckPassed = false
+
     
     
     // Optimized visual feedback
@@ -35,8 +35,7 @@ class VoiceRecorder: NSObject, ObservableObject {
     @Published var formattedTimeRemaining = "2:00"
     @Published var formattedElapsedTime = "0:00"
     
-    // Pre-connection state for instant feedback
-    @Published var readyToRecord = false
+
     
     weak var networkManager: NetworkManager?
     
@@ -99,21 +98,15 @@ class VoiceRecorder: NSObject, ObservableObject {
     private var levelHistory: [Float] = []
     private var peakLevel: Float = 0.0
     
-    // Background connection monitoring
-    private var connectionCheckTimer: Timer?
-    private var lastConnectionCheck: Date = Date()
-    private let connectionCheckInterval: TimeInterval = 30.0 // Check every 30 seconds
     
     override init() {
         super.init()
         setupOptimizedAudioSession()
-        startBackgroundConnectionMonitoring()
     }
     
     deinit {
         meteringTimer?.invalidate()
         durationTimer?.invalidate()
-        connectionCheckTimer?.invalidate()
         
         if recorder?.isRecording == true {
             recorder?.stop()
@@ -177,82 +170,22 @@ class VoiceRecorder: NSObject, ObservableObject {
         
         // Mark session as ready
         isAudioSessionReady = true
-        updateReadyState()
+
         
         print("🎤 ✅ Audio session pre-configured for instant recording")
     }
     
-    // MARK: - Background Connection Monitoring
-    
-    private func startBackgroundConnectionMonitoring() {
-        connectionCheckTimer = Timer.scheduledTimer(withTimeInterval: connectionCheckInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.performBackgroundConnectionCheck()
-            }
-        }
-        
-        // Initial check
-        Task {
-            await performBackgroundConnectionCheck()
-        }
-    }
-    
-    private func performBackgroundConnectionCheck() async {
-        guard let networkManager = networkManager else { return }
-        
-        // Silent background check without affecting UI
-        let connectionOK = await networkManager.backgroundServerCheck()
-        
-        await MainActor.run {
-            serverCheckPassed = connectionOK
-            updateReadyState()
-            lastConnectionCheck = Date()
-        }
-    }
-    
-    private func updateReadyState() {
-        readyToRecord = microphonePermission && isAudioSessionReady && serverCheckPassed
-    }
-    
+
     // MARK: - Instant Recording Start
     
     func beginRecording() {
-        print("🎤 Begin recording requested - instant mode")
-        
-        guard microphonePermission else {
-            print("❌ No microphone permission")
-            return
-        }
-        
-        guard !isRecording else {
-            print("⚠️ Already recording")
-            return
-        }
-        
-        // Instant UI feedback - no waiting
-        let feedback = UIImpactFeedbackGenerator(style: .medium)
-        feedback.impactOccurred()
-        
-        // Check if we need fresh connection check
-        let timeSinceLastCheck = Date().timeIntervalSince(lastConnectionCheck)
-        
-        if timeSinceLastCheck > 60.0 || !serverCheckPassed {
-            // Quick connection check in background
-            Task {
-                let connectionOK = await networkManager?.quickServerCheck() ?? false
-                
-                await MainActor.run {
-                    if connectionOK {
-                        startRecordingInstantly()
-                    } else {
-                        serverCheckFailed?("Cannot connect to server. Please check your connection.")
-                    }
-                }
-            }
-        } else {
-            // Start immediately if recent check was OK
-            startRecordingInstantly()
-        }
+        guard microphonePermission else { return }
+           guard !isRecording else { return }
+           
+           let feedback = UIImpactFeedbackGenerator(style: .medium)
+           feedback.impactOccurred()
+           
+           startRecordingInstantly() // Direkt başlat
     }
     
     private func startRecordingInstantly() {
@@ -578,14 +511,12 @@ class VoiceRecorder: NSObject, ObservableObject {
     
     func getRecordingStatus() -> String {
         if !microphonePermission {
-            return "Microphone permission required"
-        } else if isRecording {
-            return "Recording \(formattedElapsedTime) / 2:00 • \(recordingQuality.description)"
-        } else if readyToRecord {
-            return "Ready to record instantly"
-        } else {
-            return "Preparing..."
-        }
+                    return "Microphone permission required"
+                } else if isRecording {
+                    return "Recording \(formattedElapsedTime) / 2:00 • \(recordingQuality.description)"
+                } else {
+                    return "Ready to record instantly"
+                }
     }
     
     var isMinimumDurationMet: Bool {

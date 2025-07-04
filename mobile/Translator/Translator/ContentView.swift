@@ -823,56 +823,33 @@ struct ContentView: View {
     }
     
     private var connectionStatusIndicator: some View {
-        HStack(spacing: 4) {
-            if networkManager.hasInternet {
-                if networkManager.serverHealth {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.caption)
-                } else {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .orange))
-                        .scaleEffect(0.7)
-                }
+        HStack(spacing: 6) {
+            if networkManager.connected && networkManager.hasInternet {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+            } else if networkManager.hasInternet && !networkManager.connected {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
             } else {
                 Image(systemName: "wifi.slash")
                     .foregroundColor(.red)
-                    .font(.caption)
-                
-                Button(action: {
-                    Task {
-                        await networkManager.checkConnectionAndServer()
-                    }
-                }) {
-                    Image(systemName: "arrow.clockwise.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
             }
-       
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    Capsule()
-                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                )
-        )
+        .background(Capsule().fill(.ultraThinMaterial))
     }
     
     // MARK: - Optimized Computed Properties
     
     private var canRecordInstantly: Bool {
-        return voiceRecorder.readyToRecord && networkManager.isReadyForRecording
+        return voiceRecorder.microphonePermission && networkManager.connected
     }
     
     private var optimizedButtonColor: Color {
         if canRecordInstantly {
             return Color(red: 0.1, green: 0.4, blue: 0.9)
-        } else if networkManager.hasInternet && !networkManager.serverHealth {
+        } else if networkManager.hasInternet {
             return .orange.opacity(0.7)
         } else {
             return .gray.opacity(0.6)
@@ -880,20 +857,14 @@ struct ContentView: View {
     }
     
     private var optimizedStatusText: String {
-        if voiceRecorder.recordingCancelled {
-                return "Recording Cancelled"
-            } else if recordingActive {
-                return showCancelHint ? "Release here to cancel" : "Release to Translate"
-            } else if !voiceRecorder.microphonePermission {
-                return "Microphone Access Required"
-            }else if !networkManager.hasInternet {
-            return "Internet Connection Required"
-        } else if !networkManager.serverHealth {
-            return "Connecting to Server..."
-        } else if voiceRecorder.readyToRecord && networkManager.isReadyForRecording {
-            return "Hold to Record"
+        if recordingActive {
+            return showCancelHint ? "Release here to cancel" : "Release to Translate"
+        } else if !voiceRecorder.microphonePermission {
+            return "Microphone Access Required"
+        } else if !networkManager.connected {
+            return "Server Unavailable"
         } else {
-            return "Preparing Recording..."
+            return "Hold to Record"
         }
     }
     
@@ -902,10 +873,6 @@ struct ContentView: View {
             return "Enable microphone access in Settings"
         } else if !networkManager.hasInternet {
             return "Check your internet connection"
-        } else if !networkManager.serverHealth {
-            return "Checking server availability..."
-        } else if !voiceRecorder.readyToRecord {
-            return "Preparing audio system..."
         } else {
             return ""
         }
@@ -925,12 +892,8 @@ struct ContentView: View {
         
         // Optimized startup sequence - no blocking operations
         Task { @MainActor in
-            // Start background connection check (non-blocking)
-            Task.detached {
-                let connectionOK = await networkManager.backgroundServerCheck()
-                print("📶 App startup - Background connection status: \(connectionOK ? "Ready" : "Not Ready")")
-            }
-            
+           
+           
             // Fetch credits in background if authenticated
             if authManager.isAuthenticated {
                 Task.detached {
@@ -960,7 +923,7 @@ struct ContentView: View {
                     lastTranslationMetrics = metrics
                     
                     // Optimized audio transmission with pre-flight check
-                    let canTransmit = await networkManager.checkInternetBeforeTransmission()
+                    let canTransmit = networkManager.hasInternet
                     if canTransmit {
                         networkManager.transmitAudio(data)
                     } else {
@@ -1033,15 +996,7 @@ struct ContentView: View {
                 speechSynthesizer.resume()
             }
             
-            // Quick background check on resume
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
-                await networkManager.backgroundServerCheck()
-                
-                // Update ready state
-                voiceRecorder.objectWillChange.send()
-            }
-            
+                        
         case .inactive:
             // Handle inactive state (like when Control Center is pulled down)
             if speechSynthesizer.isSpeaking {
@@ -1102,10 +1057,7 @@ struct ContentView: View {
             resultsVisible = false
         }
         
-        // Quick connection check
-        Task {
-            await networkManager.quickServerCheck()
-        }
+      
     }
     
     // MARK: - Enhanced Animations
@@ -1179,11 +1131,7 @@ struct ContentView: View {
             if speechSynthesizer.isSpeaking {
                 speechSynthesizer.resume()
             }
-            
-            // Quick health check
-            Task {
-                await networkManager.quickServerCheck()
-            }
+        
         }
     }
 }
