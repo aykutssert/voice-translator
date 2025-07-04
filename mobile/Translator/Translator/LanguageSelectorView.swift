@@ -73,8 +73,6 @@ struct LanguageSelectorView: View {
                             // Popular Directions
                             popularDirectionsSection
                             
-                            // All Languages
-                            allLanguagesSection
                             
                             Spacer(minLength: 100)
                         }
@@ -466,30 +464,6 @@ struct LanguageSelectorView: View {
         }
     }
     
-    // MARK: - All Languages Section
-    
-    private var allLanguagesSection: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("All Languages")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                Spacer()
-            }
-            
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 12) {
-                ForEach(filteredLanguages, id: \.id) { language in
-                    LanguageCard(language: language) {
-                        showingCustomPicker = true
-                    }
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Single Language Picker (for editing source/target)

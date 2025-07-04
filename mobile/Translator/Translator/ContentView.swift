@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showingRecordingTips = false
     @State private var recordingGuidance: String = ""
     @State private var showRecordingFeedback = false
+    @State private var buttonPressed = false
     
     var body: some View {
         ZStack {
@@ -137,17 +138,7 @@ struct ContentView: View {
                 
                 HStack(spacing: 12) {
                     // Connection status indicator
-                    if !networkManager.connected && networkManager.hasInternet {
-                        Button(action: {
-                            Task {
-                                _ = await networkManager.checkConnectionAndServer()
-                            }
-                        }) {
-                            Image(systemName: "arrow.clockwise.circle.fill")
-                                .font(.title3)
-                                .foregroundColor(.orange)
-                        }
-                    }
+                    connectionStatusIndicator
                     
                     // Credits button
                     Button(action: { showingCreditsSheet.toggle() }) {
@@ -198,6 +189,12 @@ struct ContentView: View {
                             }
                         }) {
                             Label("Recording Tips", systemImage: "lightbulb")
+                        }
+                        
+                        if !networkManager.targetResult.isEmpty && networkManager.targetResult.hasPrefix("Error:") {
+                            Button(action: quickRetry) {
+                                Label("Retry", systemImage: "arrow.clockwise")
+                            }
                         }
                         
                         Divider()
@@ -264,11 +261,7 @@ struct ContentView: View {
                     
                     // Swap and Arrow
                     VStack(spacing: 8) {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                                languageManager.swapLanguages()
-                            }
-                        }) {
+                        Button(action: quickLanguageSwap) {
                             Image(systemName: "arrow.left.arrow.right")
                                 .font(.title2)
                                 .foregroundColor(.white)
@@ -484,6 +477,7 @@ struct ContentView: View {
         )
     }
     
+    // MARK: - Enhanced Microphone Interface (Optimized for Instant Response)
     private var enhancedMicrophoneInterface: some View {
         VStack(spacing: 24) {
             if networkManager.processing {
@@ -508,7 +502,7 @@ struct ContentView: View {
             
             if recordingActive {
                 VStack(spacing: 12) {
-                    // Timer ve Progress Bar
+                    // Enhanced Timer and Progress Bar
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
                             Circle()
@@ -524,12 +518,18 @@ struct ContentView: View {
                                 .animation(.easeInOut(duration: 0.3), value: voiceRecorder.timerColor)
                         }
                         
-                        // Progress Bar
+                        // Enhanced Progress Bar with smooth animations
                         ProgressView(value: voiceRecorder.recordingProgress)
                             .progressViewStyle(LinearProgressViewStyle(tint: voiceRecorder.progressColor))
                             .frame(height: 4)
                             .scaleEffect(x: 1, y: 2)
                             .animation(.easeInOut(duration: 0.3), value: voiceRecorder.progressColor)
+                            .background(
+                                Rectangle()
+                                    .fill(.white.opacity(0.2))
+                                    .frame(height: 4)
+                                    .scaleEffect(x: 1, y: 2)
+                            )
                     }
                     
                     Text(recordingGuidance)
@@ -541,14 +541,19 @@ struct ContentView: View {
                 .transition(.opacity.combined(with: .scale))
             }
             
+            // Optimized Microphone Button with Instant Feedback
             Button(action: {}) {
                 ZStack {
+                    // Outer Ring with instant feedback
                     Circle()
-                        .stroke(recordingActive ? .red : buttonColor, lineWidth: 4)
+                        .stroke(recordingActive ? .red : optimizedButtonColor, lineWidth: 4)
                         .frame(width: 130, height: 130)
-                        .scaleEffect(recordingActive ? 1.15 : 1.0)
+                        .scaleEffect(recordingActive ? 1.15 : (buttonPressed ? 1.05 : 1.0))
                         .opacity(recordingActive ? 0.8 : 1.0)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: recordingActive)
+                        .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
                     
+                    // Dynamic ripple effects during recording
                     if recordingActive {
                         ForEach(0..<3, id: \.self) { index in
                             Circle()
@@ -556,23 +561,25 @@ struct ContentView: View {
                                 .frame(width: 150 + CGFloat(index * 25), height: 150 + CGFloat(index * 25))
                                 .scaleEffect(1.0 + Double(voiceRecorder.recordingLevel) * (1.0 + Double(index) * 0.3))
                                 .opacity(0.7 - Double(index) * 0.2)
-                                .animation(.easeInOut(duration: 0.1), value: voiceRecorder.recordingLevel)
+                                .animation(.easeOut(duration: 0.08), value: voiceRecorder.recordingLevel)
                         }
                     }
                     
+                    // Audio level visualization
                     if recordingActive && voiceRecorder.recordingLevel > 0.1 {
                         Circle()
-                            .fill(.red.opacity(0.2))
+                            .fill(.red.opacity(0.15 + Double(voiceRecorder.recordingLevel) * 0.1))
                             .frame(width: 100 + CGFloat(voiceRecorder.recordingLevel * 30), height: 100 + CGFloat(voiceRecorder.recordingLevel * 30))
-                            .animation(.easeInOut(duration: 0.1), value: voiceRecorder.recordingLevel)
+                            .animation(.easeOut(duration: 0.08), value: voiceRecorder.recordingLevel)
                     }
                     
+                    // Main button with enhanced gradient
                     Circle()
                         .fill(
                             RadialGradient(
                                 gradient: Gradient(colors: [
-                                    recordingActive ? .red : buttonColor,
-                                    recordingActive ? .red.opacity(0.7) : buttonColor.opacity(0.7)
+                                    recordingActive ? .red : optimizedButtonColor,
+                                    recordingActive ? .red.opacity(0.7) : optimizedButtonColor.opacity(0.7)
                                 ]),
                                 center: .center,
                                 startRadius: 5,
@@ -580,37 +587,62 @@ struct ContentView: View {
                             )
                         )
                         .frame(width: 110, height: 110)
-                        .scaleEffect(recordingActive ? 0.95 : 1.0)
-                        .shadow(color: recordingActive ? .red.opacity(0.5) : buttonColor.opacity(0.3), radius: 10, x: 0, y: 5)
+                        .scaleEffect(recordingActive ? 0.95 : (buttonPressed ? 0.97 : 1.0))
+                        .shadow(
+                            color: recordingActive ? .red.opacity(0.5) : optimizedButtonColor.opacity(0.3),
+                            radius: buttonPressed ? 15 : 10,
+                            x: 0,
+                            y: buttonPressed ? 8 : 5
+                        )
+                        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: recordingActive)
+                        .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
                     
+                    // Icon with smooth transitions
                     ZStack {
                         if recordingActive {
                             Image(systemName: "stop.fill")
                                 .font(.system(size: 42, weight: .bold))
                                 .foregroundColor(.white)
                                 .scaleEffect(1.4)
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .scale.combined(with: .opacity)
+                                ))
                         } else {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(.white)
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .scale.combined(with: .opacity)
+                                ))
                         }
                     }
                     .animation(.spring(response: 0.3, dampingFraction: 0.6), value: recordingActive)
                 }
             }
-            .scaleEffect(recordingActive ? 1.03 : 1.0)
-            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: recordingActive)
+            .scaleEffect(recordingActive ? 1.03 : (buttonPressed ? 1.01 : 1.0))
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: recordingActive)
+            .animation(.spring(response: 0.15, dampingFraction: 0.8), value: buttonPressed)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if networkManager.hasInternet && voiceRecorder.microphonePermission && !voiceRecorder.isRecording {
+                        if !buttonPressed {
+                            animateButtonPress()
+                        }
+                        
+                        if canRecordInstantly && !voiceRecorder.isRecording {
                             Task {
                                 await voiceRecorder.beginRecording()
                             }
                         }
                     }
                     .onEnded { _ in
-                        voiceRecorder.endRecording()
+                        animateButtonRelease()
+                        
+                        if voiceRecorder.isRecording {
+                            voiceRecorder.endRecording()
+                        }
                     }
             )
             .onTapGesture {
@@ -618,19 +650,20 @@ struct ContentView: View {
                     voiceRecorder.endRecording()
                 }
             }
-            .disabled(!canRecord)
+            .disabled(!canRecordInstantly && !voiceRecorder.isRecording)
             
+            // Enhanced Status Display
             VStack(spacing: 12) {
-                Text(statusText)
+                Text(optimizedStatusText)
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(.white.opacity(0.9))
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
-                    .animation(.easeInOut, value: statusText)
+                    .animation(.easeInOut, value: optimizedStatusText)
                 
-                if !canRecord {
+                if !canRecordInstantly && !voiceRecorder.isRecording {
                     VStack(spacing: 6) {
-                        Text(helpText)
+                        Text(optimizedHelpText)
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.6))
                             .multilineTextAlignment(.center)
@@ -643,16 +676,48 @@ struct ContentView: View {
                             }
                             .font(.caption)
                             .foregroundColor(.blue)
+                        } else if !networkManager.hasInternet {
+                            Button("Check Connection") {
+                                Task {
+                                    await networkManager.checkConnectionAndServer()
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.blue)
                         }
                     }
                     .transition(.opacity)
                 }
                 
-                if canRecord && !recordingActive && !networkManager.processing {
-                    Text("💡 Tip: Speak clearly in \(languageManager.selectedDirection.sourceLanguage.name)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.5))
-                        .transition(.opacity)
+                if canRecordInstantly && !recordingActive && !networkManager.processing {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                        
+                        Text("Ready • Speak clearly in \(languageManager.selectedDirection.sourceLanguage.name)")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    .transition(.opacity.combined(with: .scale))
+                }
+                
+                // Connection quality indicator
+                if canRecordInstantly {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 8, height: 8)
+                            .opacity(0.8)
+                            .scaleEffect(1.2)
+                            .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: canRecordInstantly)
+                        
+                        Text(networkManager.connectionDisplayText)
+                            .font(.caption2)
+                            .foregroundColor(.green.opacity(0.8))
+                            .fontWeight(.medium)
+                    }
+                    .transition(.opacity)
                 }
             }
         }
@@ -672,92 +737,188 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Computed Properties
-    
-    private var canRecord: Bool {
-        return networkManager.hasInternet && networkManager.connected && voiceRecorder.microphonePermission
+    private var connectionStatusIndicator: some View {
+        HStack(spacing: 6) {
+            if networkManager.hasInternet {
+                if networkManager.serverHealth {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .orange))
+                        .scaleEffect(0.7)
+                }
+            } else {
+                Image(systemName: "wifi.slash")
+                    .foregroundColor(.red)
+                    .font(.caption)
+                
+                Button(action: {
+                    Task {
+                        await networkManager.checkConnectionAndServer()
+                    }
+                }) {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Capsule()
+                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                )
+        )
     }
     
-    private var buttonColor: Color {
-        if networkManager.connected {
+    // MARK: - Optimized Computed Properties
+    
+    private var canRecordInstantly: Bool {
+        return voiceRecorder.readyToRecord && networkManager.isReadyForRecording
+    }
+    
+    private var optimizedButtonColor: Color {
+        if canRecordInstantly {
             return Color(red: 0.1, green: 0.4, blue: 0.9)
+        } else if networkManager.hasInternet && !networkManager.serverHealth {
+            return .orange.opacity(0.7)
         } else {
             return .gray.opacity(0.6)
         }
     }
     
-    private var statusText: String {
+    private var optimizedStatusText: String {
         if recordingActive {
             return "Release to Translate"
         } else if !voiceRecorder.microphonePermission {
             return "Microphone Access Required"
         } else if !networkManager.hasInternet {
             return "Internet Connection Required"
-        } else if !networkManager.connected {
+        } else if !networkManager.serverHealth {
             return "Connecting to Server..."
-        } else {
+        } else if voiceRecorder.readyToRecord && networkManager.isReadyForRecording {
             return "Hold to Record"
+        } else {
+            return "Preparing Recording..."
         }
     }
     
-    private var helpText: String {
+    private var optimizedHelpText: String {
         if !voiceRecorder.microphonePermission {
             return "Enable microphone access in Settings"
         } else if !networkManager.hasInternet {
             return "Check your internet connection"
-        } else if !networkManager.connected {
-            return "Server connection in progress..."
+        } else if !networkManager.serverHealth {
+            return "Checking server availability..."
+        } else if !voiceRecorder.readyToRecord {
+            return "Preparing audio system..."
         } else {
             return ""
         }
     }
     
-    // MARK: - Helper Functions
+    // MARK: - Optimized Helper Functions
     
     private func initializeApp() {
-        print("🚀 Initializing Multi-Language Voice Translator...")
+        print("🚀 Initializing Optimized Voice Translator...")
         
-        setupRecordingCallback()
+        setupOptimizedRecordingCallback()
         voiceRecorder.networkManager = networkManager
         premiumManager.setNetworkManager(networkManager)
         
         // Set initial translation direction
         networkManager.setTranslationDirection(languageManager.selectedDirection)
         
-        // Uygulama açılırken internet ve sunucu kontrolü
-        Task {
-            let connectionOK = await networkManager.checkConnectionAndServer()
-            print("📶 App startup - Connection status: \(connectionOK ? "Ready" : "Not Ready")")
-            
-            if authManager.isAuthenticated {
-                await networkManager.fetchUserCredits()
+        // Optimized startup sequence - no blocking operations
+        Task { @MainActor in
+            // Start background connection check (non-blocking)
+            Task.detached {
+                let connectionOK = await networkManager.backgroundServerCheck()
+                print("📶 App startup - Background connection status: \(connectionOK ? "Ready" : "Not Ready")")
             }
+            
+            // Fetch credits in background if authenticated
+            if authManager.isAuthenticated {
+                Task.detached {
+                    await networkManager.fetchUserCredits()
+                }
+            }
+            
+            // Setup background task management
+            handleBackgroundTasks()
+            
+            // Optimize audio session
+            optimizeAudioSession()
+            
+            print("✅ App initialization completed instantly")
         }
     }
     
-    private func setupRecordingCallback() {
-        voiceRecorder.recordingCompleted = { audioData, metrics in
-            guard let data = audioData else { return }
+    private func setupOptimizedRecordingCallback() {
+        voiceRecorder.recordingCompleted = { [networkManager] audioData, metrics in
+            guard let data = audioData else {
+                print("⚠️ No audio data")
+                return
+            }
             
-            lastTranslationMetrics = metrics
-            
-            // Ses kaydı bittiğinde transmitAudio çağrılır
-            networkManager.transmitAudio(data)
+            Task { @MainActor in
+                lastTranslationMetrics = metrics
+                
+                // Optimized audio transmission with pre-flight check
+                let canTransmit = await networkManager.checkInternetBeforeTransmission()
+                if canTransmit {
+                    networkManager.transmitAudio(data)
+                } else {
+                    networkManager.targetResult = "Error: Cannot connect to translation server. Please check your connection."
+                    networkManager.processing = false
+                }
+            }
         }
         
         voiceRecorder.serverCheckFailed = { errorMessage in
             print("❌ Recording failed: \(errorMessage)")
+            
+            // Show user-friendly error with retry option
+            Task { @MainActor in
+                networkManager.targetResult = "Error: \(errorMessage)"
+                
+                // Auto-clear error after 5 seconds
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if networkManager.targetResult.hasPrefix("Error:") {
+                    networkManager.targetResult = ""
+                }
+            }
         }
     }
     
+    private func showRecordingErrorAlert(_ message: String) {
+        // This function is no longer needed since we handle errors directly in the callback
+    }
+    
     private func handleTranslationUpdate() {
-        if autoPlayback && !networkManager.targetResult.isEmpty && !networkManager.targetResult.hasPrefix("Error:") {
+        // Enhanced auto-playback with better timing
+        if autoPlayback &&
+           !networkManager.targetResult.isEmpty &&
+           !networkManager.targetResult.hasPrefix("Error:") &&
+           !speechSynthesizer.isSpeaking {
+            
             let languageCode = TTS_LANGUAGE_MAP[languageManager.selectedDirection.targetLanguage.code] ?? "en-US"
-            speechSynthesizer.vocalize(networkManager.targetResult, languageCode: languageCode)
+            
+            // Small delay to ensure UI has updated
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+                speechSynthesizer.vocalize(networkManager.targetResult, languageCode: languageCode)
+            }
         }
         
         if !networkManager.targetResult.isEmpty {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                 resultsVisible = true
             }
         }
@@ -770,30 +931,170 @@ struct ContentView: View {
             if recordingActive {
                 voiceRecorder.endRecording()
             }
+            // Pause any ongoing speech
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.pause()
+            }
+            
         case .active:
             print("📱 App activated")
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                let connectionOK = await networkManager.checkConnectionAndServer()
-                print("📶 App resumed - Connection status: \(connectionOK ? "Ready" : "Not Ready")")
+            
+            // Resume speech if it was paused
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.resume()
             }
-        default:
+            
+            // Quick background check on resume
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                await networkManager.backgroundServerCheck()
+                
+                // Update ready state
+                voiceRecorder.objectWillChange.send()
+            }
+            
+        case .inactive:
+            // Handle inactive state (like when Control Center is pulled down)
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.pause()
+            }
+            
+        @unknown default:
             break
         }
     }
     
     private func updateRecordingGuidance(_ quality: VoiceRecorder.RecordingQuality) {
+        let newGuidance: String
+        
         switch quality {
         case .silent:
-            recordingGuidance = "Speak louder"
+            newGuidance = "Speak louder"
         case .low:
-            recordingGuidance = "Speak closer to microphone"
+            newGuidance = "Speak closer to microphone"
         case .medium:
-            recordingGuidance = "Good - keep speaking"
+            newGuidance = "Good - keep speaking"
         case .good:
-            recordingGuidance = "Excellent quality"
+            newGuidance = "Excellent quality"
         case .excellent:
-            recordingGuidance = "Perfect - great audio!"
+            newGuidance = "Perfect - great audio!"
+        }
+        
+        // Only update if guidance actually changed to avoid unnecessary animations
+        if recordingGuidance != newGuidance {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                recordingGuidance = newGuidance
+            }
+        }
+    }
+    
+    // MARK: - Quick Actions
+    
+    private func quickLanguageSwap() {
+        let feedback = UIImpactFeedbackGenerator(style: .light)
+        feedback.impactOccurred()
+        
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            languageManager.swapLanguages()
+        }
+    }
+    
+    private func quickRetry() {
+        guard !networkManager.processing else { return }
+        
+        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        feedback.impactOccurred()
+        
+        // Clear previous results
+        networkManager.sourceResult = ""
+        networkManager.targetResult = ""
+        
+        withAnimation {
+            resultsVisible = false
+        }
+        
+        // Quick connection check
+        Task {
+            await networkManager.quickServerCheck()
+        }
+    }
+    
+    // MARK: - Enhanced Animations
+    
+    private func animateButtonPress() {
+        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        feedback.prepare()
+        
+        withAnimation(.spring(response: 0.15, dampingFraction: 0.8)) {
+            buttonPressed = true
+        }
+        
+        feedback.impactOccurred()
+    }
+    
+    private func animateButtonRelease() {
+        let feedback = UIImpactFeedbackGenerator(style: .light)
+        feedback.prepare()
+        
+        withAnimation(.spring(response: 0.15, dampingFraction: 0.8)) {
+            buttonPressed = false
+        }
+        
+        feedback.impactOccurred()
+    }
+    
+    // MARK: - Audio Session Management
+    
+    private func optimizeAudioSession() {
+        // This runs in background to prepare audio system
+        Task.detached { @MainActor in
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                
+                // Optimize for low latency
+                try audioSession.setPreferredIOBufferDuration(0.005) // 5ms buffer
+                try audioSession.setPreferredSampleRate(44100)
+                
+                print("🎵 Audio session optimized for low latency")
+            } catch {
+                print("⚠️ Audio session optimization failed: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - Background Task Management
+    
+    private func handleBackgroundTasks() {
+        // Ensure smooth transitions when app goes to background
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Pause any ongoing operations smoothly
+            if voiceRecorder.isRecording {
+                voiceRecorder.endRecording()
+            }
+            
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.pause()
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Resume operations
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.resume()
+            }
+            
+            // Quick health check
+            Task {
+                await networkManager.quickServerCheck()
+            }
         }
     }
 }

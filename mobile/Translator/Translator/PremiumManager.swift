@@ -269,7 +269,7 @@ class PremiumManager: NSObject, ObservableObject {
         
         do {
             let serverIP = getServerIP()
-            let url = URL(string: "http://\(serverIP):8000/api/add-credits")!
+            let url = URL(string: "http://\(serverIP)/api/add-credits")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

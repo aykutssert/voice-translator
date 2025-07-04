@@ -54,7 +54,7 @@ class SpeechSynthesizer: NSObject, ObservableObject {
     // MARK: - Language-specific optimizations
     
     private func getOptimalRate(for languageCode: String) -> Float {
-        switch languageCode.prefix(2) {
+        /*switch languageCode.prefix(2) {
         case "tr": return 0.45 // Türkçe biraz daha yavaş
         case "ja", "ko": return 0.4 // Asya dilleri daha yavaş
         case "es", "it": return 0.55 // Latin dilleri biraz hızlı
@@ -62,7 +62,8 @@ class SpeechSynthesizer: NSObject, ObservableObject {
         case "zh": return 0.35 // Çince çok yavaş
         case "ar", "he": return 0.4 // Sağdan sola diller
         default: return 0.5 // İngilizce ve diğerleri
-        }
+        }*/
+        return 0.45
     }
     
     private func getOptimalPitch(for languageCode: String) -> Float {

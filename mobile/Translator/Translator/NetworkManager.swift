@@ -4,7 +4,7 @@ import Foundation
 import FirebaseAuth
 import Network
 
-// MARK: - HTTP-Based Network Manager
+// MARK: - Optimized Network Manager
 @MainActor
 class NetworkManager: NSObject, ObservableObject {
     private var session: URLSession
@@ -21,21 +21,36 @@ class NetworkManager: NSObject, ObservableObject {
     @Published var hasInternet = false
     @Published var currentTranslationDirection: TranslationDirection?
     
+    // Optimized connection state
+    @Published var serverHealth = false
+    @Published var lastServerCheck: Date = Date.distantPast
+    
     // Configuration
     private let requestTimeout: TimeInterval = 30.0
-    private let quickCheckTimeout: TimeInterval = 5.0
+    private let quickCheckTimeout: TimeInterval = 2.0 // Reduced for instant feedback
+    private let backgroundCheckTimeout: TimeInterval = 5.0
     private let maxRetryAttempts = 3
-    private let maxRecordingDurationMinutes = 2.0 // 2 dakika maksimum
+    private let maxRecordingDurationMinutes = 2.0
+    
+    // Connection optimization
+    private let serverCheckInterval: TimeInterval = 30.0
+    private var connectionCache: [String: (result: Bool, timestamp: Date)] = [:]
+    private let cacheValidDuration: TimeInterval = 60.0 // 1 minute cache
     
     override init() {
-        // Configure URLSession for optimal performance
+        // Optimized URLSession configuration
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30.0
-        config.timeoutIntervalForResource = 60.0
-        config.waitsForConnectivity = true
+        config.timeoutIntervalForRequest = 15.0 // Reduced timeout
+        config.timeoutIntervalForResource = 45.0
+        config.waitsForConnectivity = false // Don't wait, fail fast
         config.allowsCellularAccess = true
         config.allowsConstrainedNetworkAccess = true
         config.networkServiceType = .responsiveData
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        
+        // Connection pooling optimization
+        config.httpMaximumConnectionsPerHost = 4
+        config.timeoutIntervalForResource = 60.0
         
         self.session = URLSession(configuration: config)
         
@@ -43,6 +58,7 @@ class NetworkManager: NSObject, ObservableObject {
         
         startNetworkMonitoring()
         setupAppLifecycleObservers()
+        performInitialServerCheck()
     }
     
     deinit {
@@ -53,7 +69,6 @@ class NetworkManager: NSObject, ObservableObject {
     
     func setTranslationDirection(_ direction: TranslationDirection) {
         currentTranslationDirection = direction
-        // Clear previous results when direction changes
         sourceResult = ""
         targetResult = ""
     }
@@ -61,7 +76,14 @@ class NetworkManager: NSObject, ObservableObject {
     private func startNetworkMonitoring() {
         networkMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
+                let wasConnected = self?.hasInternet ?? false
                 self?.hasInternet = path.status == .satisfied
+                
+                if path.status == .satisfied && !wasConnected {
+                    // Internet just became available, check server
+                    self?.performQuickServerCheck()
+                }
+                
                 self?.updateConnectionStatus(path.status == .satisfied ? "Internet Available" : "No Internet")
                 print("📶 Internet status: \(path.status == .satisfied ? "Available" : "Unavailable")")
             }
@@ -88,6 +110,7 @@ class NetworkManager: NSObject, ObservableObject {
     @objc private func appWillEnterForeground() {
         print("📱 App entered foreground")
         updateLastActivity()
+        performQuickServerCheck()
     }
     
     @objc private func appDidEnterBackground() {
@@ -95,20 +118,139 @@ class NetworkManager: NSObject, ObservableObject {
         updateConnectionStatus("Background Mode")
     }
     
+    private func performInitialServerCheck() {
+        Task {
+            await backgroundServerCheck()
+        }
+    }
+    
+    private func performQuickServerCheck() {
+        Task {
+            await quickServerCheck()
+        }
+    }
+    
+    // MARK: - Optimized Connection Checks
+    
+    func backgroundServerCheck() async -> Bool {
+        guard hasInternet else {
+            await MainActor.run {
+                serverHealth = false
+                connected = false
+                updateConnectionStatus("No Internet")
+            }
+            return false
+        }
+        
+        // Check cache first for background checks
+        let cacheKey = "background_check"
+        if let cached = connectionCache[cacheKey],
+           Date().timeIntervalSince(cached.timestamp) < cacheValidDuration {
+            await MainActor.run {
+                serverHealth = cached.result
+                connected = cached.result
+                updateConnectionStatus(cached.result ? "Connected (Cached)" : "Server Unavailable")
+            }
+            return cached.result
+        }
+        
+        do {
+            let serverURL = URL(string: "http://\(getServerIP())/health")!
+            var request = URLRequest(url: serverURL)
+            request.timeoutInterval = backgroundCheckTimeout
+            request.cachePolicy = .reloadIgnoringCacheData
+            
+            let (_, response) = try await session.data(for: request)
+            
+            let isHealthy = (response as? HTTPURLResponse)?.statusCode == 200
+            
+            await MainActor.run {
+                serverHealth = isHealthy
+                connected = isHealthy
+                lastServerCheck = Date()
+                updateConnectionStatus(isHealthy ? "Connected" : "Server Unavailable")
+            }
+            
+            // Cache the result
+            connectionCache[cacheKey] = (result: isHealthy, timestamp: Date())
+            
+            return isHealthy
+            
+        } catch {
+            await MainActor.run {
+                serverHealth = false
+                connected = false
+                updateConnectionStatus("Server Unreachable")
+            }
+            
+            // Cache the negative result for shorter time
+            connectionCache[cacheKey] = (result: false, timestamp: Date().addingTimeInterval(-cacheValidDuration + 10))
+            
+            return false
+        }
+    }
+    
+    func quickServerCheck() async -> Bool {
+        guard hasInternet else {
+            await MainActor.run {
+                serverHealth = false
+                connected = false
+                updateConnectionStatus("No Internet")
+            }
+            return false
+        }
+        
+        // For quick checks, use even shorter timeout
+        do {
+            let serverURL = URL(string: "http://\(getServerIP())/health")!
+            var request = URLRequest(url: serverURL)
+            request.timeoutInterval = quickCheckTimeout
+            request.cachePolicy = .reloadIgnoringCacheData
+            
+            let (_, response) = try await session.data(for: request)
+            
+            let isHealthy = (response as? HTTPURLResponse)?.statusCode == 200
+            
+            await MainActor.run {
+                serverHealth = isHealthy
+                connected = isHealthy
+                lastServerCheck = Date()
+                updateConnectionStatus(isHealthy ? "Connected" : "Server Unavailable")
+            }
+            
+            return isHealthy
+            
+        } catch {
+            await MainActor.run {
+                serverHealth = false
+                connected = false
+                updateConnectionStatus("Server Unreachable")
+            }
+            return false
+        }
+    }
+    
     func checkInternetBeforeRecording() async -> Bool {
-        print("🔍 Checking connection before recording...")
-        return await checkConnectionAndServer()
+        print("🔍 Quick check before recording...")
+        
+        // If we have recent positive server check, trust it
+        let timeSinceLastCheck = Date().timeIntervalSince(lastServerCheck)
+        if timeSinceLastCheck < 30.0 && serverHealth && hasInternet {
+            print("✅ Using recent positive server check")
+            return true
+        }
+        
+        return await quickServerCheck()
     }
 
     func checkInternetBeforeTransmission() async -> Bool {
-        print("🔍 Checking connection before transmission...")
-        return await checkConnectionAndServer()
+        print("🔍 Quick check before transmission...")
+        return await quickServerCheck()
     }
     
     func checkConnectionAndServer() async -> Bool {
-        print("🔍 Checking internet and server connection...")
+        print("🔍 Full connection and server check...")
         
-        // Önce internet var mı kontrol et
         guard hasInternet else {
             print("❌ No internet connection")
             await MainActor.run {
@@ -118,44 +260,10 @@ class NetworkManager: NSObject, ObservableObject {
             return false
         }
         
-        // Internet varsa sunucu kontrolü yap
-        do {
-            let serverURL = URL(string: "http://\(getServerIP()):8000/health")!
-            var request = URLRequest(url: serverURL)
-            request.timeoutInterval = quickCheckTimeout
-            
-            print("🌐 Attempting connection to: \(serverURL)")
-            
-            let (_, response) = try await session.data(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
-                print("✅ Internet and server both available")
-                await MainActor.run {
-                    connected = true
-                    updateConnectionStatus("Connected")
-                }
-                return true
-            } else {
-                print("❌ Internet available but server not responding")
-                await MainActor.run {
-                    connected = false
-                    updateConnectionStatus("Server Unavailable")
-                }
-                return false
-            }
-            
-        } catch {
-            print("❌ Internet available but server unreachable: \(error)")
-            await MainActor.run {
-                connected = false
-                updateConnectionStatus("Server Unreachable")
-            }
-            return false
-        }
+        return await backgroundServerCheck()
     }
     
-    // MARK: - Audio Translation
+    // MARK: - Optimized Audio Transmission
     
     func transmitAudio(_ data: Data) {
         guard let direction = currentTranslationDirection else {
@@ -166,33 +274,26 @@ class NetworkManager: NSObject, ObservableObject {
         processing = true
         
         Task {
-            // Duration kontrolü
+            // Quick duration check
             let estimatedDuration = estimateAudioDuration(data)
             if estimatedDuration > maxRecordingDurationMinutes {
                 await handleTranslationError("Recording too long. Maximum duration is \(Int(maxRecordingDurationMinutes)) minutes.")
                 return
             }
             
-            // Önce hızlı health check
-            do {
-                let serverURL = URL(string: "http://\(getServerIP()):8000/health")!
-                var request = URLRequest(url: serverURL)
-                request.timeoutInterval = 3.0
-                
-                let (_, response) = try await session.data(for: request)
-                
-                if let httpResponse = response as? HTTPURLResponse,
-                   httpResponse.statusCode != 200 {
-                    throw URLError(.cannotConnectToHost)
+            // Skip health check if we have recent positive result
+            let timeSinceLastCheck = Date().timeIntervalSince(lastServerCheck)
+            if timeSinceLastCheck > 60.0 || !serverHealth {
+                // Quick health check only if needed
+                let isHealthy = await quickServerCheck()
+                if !isHealthy {
+                    await handleTranslationError("Server is not available. Please check your connection.")
+                    return
                 }
-                
-            } catch {
-                await handleTranslationError("Server is not available. Please check your connection.")
-                return
             }
             
-            // Server OK ise normal translation
-            await performAudioTranslation(data, direction: direction)
+            // Proceed with translation
+            await performOptimizedAudioTranslation(data, direction: direction)
         }
     }
     
@@ -202,7 +303,7 @@ class NetworkManager: NSObject, ObservableObject {
         return estimatedSeconds / 60.0 // Minutes
     }
     
-    private func performAudioTranslation(_ audioData: Data, direction: TranslationDirection) async {
+    private func performOptimizedAudioTranslation(_ audioData: Data, direction: TranslationDirection) async {
         let encodedAudio = audioData.base64EncodedString()
         let userId = Auth.auth().currentUser?.uid ?? "anonymous"
         
@@ -220,11 +321,13 @@ class NetworkManager: NSObject, ObservableObject {
                 print("🔄 Translation attempt \(attempt)/\(maxRetryAttempts)")
                 print("🌍 Translating: \(direction.sourceLanguage.name) → \(direction.targetLanguage.name)")
                 
-                let serverURL = URL(string: "http://\(getServerIP()):8000/api/translate")!
+                let serverURL = URL(string: "http://\(getServerIP())/api/translate")!
                 var request = URLRequest(url: serverURL)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("keep-alive", forHTTPHeaderField: "Connection")
                 request.timeoutInterval = requestTimeout
+                request.cachePolicy = .reloadIgnoringCacheData
                 request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
                 
                 let (data, response) = try await session.data(for: request)
@@ -269,8 +372,9 @@ class NetworkManager: NSObject, ObservableObject {
                         await handleTranslationError("Network error: \(error.localizedDescription)")
                     }
                 } else {
-                    // Wait before retry
-                    try? await Task.sleep(nanoseconds: UInt64(attempt * 1_000_000_000))
+                    // Exponential backoff for retries
+                    let delay = min(Double(attempt * 2), 5.0) // Max 5 seconds
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
             }
         }
@@ -352,9 +456,10 @@ class NetworkManager: NSObject, ObservableObject {
         }
         
         do {
-            let serverURL = URL(string: "http://\(getServerIP()):8000/api/credits/\(userId)")!
+            let serverURL = URL(string: "http://\(getServerIP())/api/credits/\(userId)")!
             var request = URLRequest(url: serverURL)
             request.timeoutInterval = 10.0
+            request.cachePolicy = .reloadIgnoringCacheData
             
             let (data, response) = try await session.data(for: request)
             
@@ -394,12 +499,13 @@ class NetworkManager: NSObject, ObservableObject {
     // MARK: - Utilities
     
     private func getServerIP() -> String {
-            #if targetEnvironment(simulator)
-                return "127.0.0.1"
-            #else
-                return "192.168.1.105" // Replace with your actual server IP
-            #endif
-        }
+        #if targetEnvironment(simulator)
+            return "127.0.0.1:8000"
+        #else
+            //return "voice-translator-2jaq.onrender.com"
+            return "192.168.1.105:8000" // Replace with your actual server IP
+        #endif
+    }
     
     private func updateConnectionStatus(_ status: String) {
         connectionStatus = status
@@ -407,5 +513,21 @@ class NetworkManager: NSObject, ObservableObject {
     
     private func updateLastActivity() {
         lastActivity = Date()
+    }
+    
+    // MARK: - Connection State Helpers
+    
+    var isReadyForRecording: Bool {
+        return hasInternet && serverHealth
+    }
+    
+    var connectionDisplayText: String {
+        if !hasInternet {
+            return "No Internet"
+        } else if serverHealth {
+            return "Ready"
+        } else {
+            return "Connecting..."
+        }
     }
 }

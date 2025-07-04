@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 import Foundation
 
-// MARK: - Voice Recorder (Güncellenmiş Görsel Feedback)
+// MARK: - Voice Recorder (Optimized for Instant Response)
 @MainActor
 class VoiceRecorder: NSObject, ObservableObject {
     private var recorder: AVAudioRecorder?
@@ -13,6 +13,10 @@ class VoiceRecorder: NSObject, ObservableObject {
     private var minimumRecordingDuration: TimeInterval = 0.5
     private var maximumRecordingDuration: TimeInterval = 120.0 // 2 dakika
     
+    // Pre-configured audio session for instant start
+    private var isAudioSessionReady = false
+    private var preConfiguredAudioFile: URL?
+    
     @Published var isRecording = false
     @Published var microphonePermission = false
     @Published var recordingLevel: Float = 0.0
@@ -21,12 +25,15 @@ class VoiceRecorder: NSObject, ObservableObject {
     @Published var canFinishRecording = false
     @Published var serverCheckPassed = false
     
-    // Yeni görsel feedback özellikleri
-    @Published var showWarningColor = false      // Son 10 saniye için sarı
-    @Published var showDangerColor = false       // Son 5 saniye için kırmızı
-    @Published var recordingProgress: Float = 0.0 // Progress bar için
-    @Published var formattedTimeRemaining = "2:00" // Kalan süre
-    @Published var formattedElapsedTime = "0:00"   // Geçen süre
+    // Optimized visual feedback
+    @Published var showWarningColor = false
+    @Published var showDangerColor = false
+    @Published var recordingProgress: Float = 0.0
+    @Published var formattedTimeRemaining = "2:00"
+    @Published var formattedElapsedTime = "0:00"
+    
+    // Pre-connection state for instant feedback
+    @Published var readyToRecord = false
     
     weak var networkManager: NetworkManager?
     
@@ -54,7 +61,6 @@ class VoiceRecorder: NSObject, ObservableObject {
         }
     }
     
-    // Timer renkleri için computed property
     var timerColor: Color {
         if showDangerColor {
             return .red
@@ -65,7 +71,6 @@ class VoiceRecorder: NSObject, ObservableObject {
         }
     }
     
-    // Progress bar rengi
     var progressColor: Color {
         if showDangerColor {
             return .red
@@ -91,14 +96,21 @@ class VoiceRecorder: NSObject, ObservableObject {
     private var levelHistory: [Float] = []
     private var peakLevel: Float = 0.0
     
+    // Background connection monitoring
+    private var connectionCheckTimer: Timer?
+    private var lastConnectionCheck: Date = Date()
+    private let connectionCheckInterval: TimeInterval = 30.0 // Check every 30 seconds
+    
     override init() {
         super.init()
-        setupAudioSession()
+        setupOptimizedAudioSession()
+        startBackgroundConnectionMonitoring()
     }
     
     deinit {
         meteringTimer?.invalidate()
         durationTimer?.invalidate()
+        connectionCheckTimer?.invalidate()
         
         if recorder?.isRecording == true {
             recorder?.stop()
@@ -107,26 +119,79 @@ class VoiceRecorder: NSObject, ObservableObject {
         try? audioSession?.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
     }
     
-    private func setupAudioSession() {
+    // MARK: - Optimized Audio Session Setup
+    
+    private func setupOptimizedAudioSession() {
         audioSession = AVAudioSession.sharedInstance()
         
         Task { @MainActor in
             do {
+                // Pre-configure audio session for instant recording
                 try audioSession?.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
                 try audioSession?.setActive(true)
                 
                 let permission = await AVAudioApplication.requestRecordPermission()
                 microphonePermission = permission
                 
-                print(permission ? "🎤 Microphone access granted" : "❌ Microphone access denied")
+                if permission {
+                    prepareAudioRecording()
+                }
+                
+                print(permission ? "🎤 Microphone access granted, session ready" : "❌ Microphone access denied")
             } catch {
                 print("❌ Audio session setup failed: \(error)")
             }
         }
     }
     
+    private func prepareAudioRecording() {
+        // Pre-create audio file URL for instant use
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        preConfiguredAudioFile = documentsPath.appendingPathComponent("recording_temp.wav")
+        
+        // Mark session as ready
+        isAudioSessionReady = true
+        updateReadyState()
+        
+        print("🎤 ✅ Audio session pre-configured for instant recording")
+    }
+    
+    // MARK: - Background Connection Monitoring
+    
+    private func startBackgroundConnectionMonitoring() {
+        connectionCheckTimer = Timer.scheduledTimer(withTimeInterval: connectionCheckInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.performBackgroundConnectionCheck()
+            }
+        }
+        
+        // Initial check
+        Task {
+            await performBackgroundConnectionCheck()
+        }
+    }
+    
+    private func performBackgroundConnectionCheck() async {
+        guard let networkManager = networkManager else { return }
+        
+        // Silent background check without affecting UI
+        let connectionOK = await networkManager.backgroundServerCheck()
+        
+        await MainActor.run {
+            serverCheckPassed = connectionOK
+            updateReadyState()
+            lastConnectionCheck = Date()
+        }
+    }
+    
+    private func updateReadyState() {
+        readyToRecord = microphonePermission && isAudioSessionReady && serverCheckPassed
+    }
+    
+    // MARK: - Instant Recording Start
+    
     func beginRecording() {
-        print("🎤 Begin recording requested")
+        print("🎤 Begin recording requested - instant mode")
         
         guard microphonePermission else {
             print("❌ No microphone permission")
@@ -138,33 +203,41 @@ class VoiceRecorder: NSObject, ObservableObject {
             return
         }
         
-        guard let networkManager = networkManager else {
-            serverCheckFailed?("Network manager not available")
-            return
-        }
+        // Instant UI feedback - no waiting
+        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        feedback.impactOccurred()
         
-        // Buton basıldığında internet ve sunucu kontrolü yap
-        Task {
-            let connectionOK = await networkManager.checkInternetBeforeRecording()
-            
-            await MainActor.run {
-                guard connectionOK else {
-                    print("❌ Connection check failed - cannot start recording")
-                    serverCheckFailed?("Cannot connect to translation server. Please check your connection and try again.")
-                    return
-                }
+        // Check if we need fresh connection check
+        let timeSinceLastCheck = Date().timeIntervalSince(lastConnectionCheck)
+        
+        if timeSinceLastCheck > 60.0 || !serverCheckPassed {
+            // Quick connection check in background
+            Task {
+                let connectionOK = await networkManager?.quickServerCheck() ?? false
                 
-                print("✅ Connection check passed - starting recording")
-                startRecordingProcess()
+                await MainActor.run {
+                    if connectionOK {
+                        startRecordingInstantly()
+                    } else {
+                        serverCheckFailed?("Cannot connect to server. Please check your connection.")
+                    }
+                }
             }
+        } else {
+            // Start immediately if recent check was OK
+            startRecordingInstantly()
         }
     }
     
-    private func startRecordingProcess() {
+    private func startRecordingInstantly() {
+        guard isAudioSessionReady else {
+            setupOptimizedAudioSession()
+            return
+        }
+        
         resetRecordingState()
         
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let audioFile = documentsPath.appendingPathComponent("recording_\(Int(Date().timeIntervalSince1970)).wav")
+        let audioFile = preConfiguredAudioFile ?? createFallbackAudioFile()
         
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
@@ -177,8 +250,8 @@ class VoiceRecorder: NSObject, ObservableObject {
         ]
         
         do {
+            // Quick mode switch for recording
             try audioSession?.setCategory(.record, mode: .measurement, options: [])
-            try audioSession?.setActive(true)
             
             recorder = try AVAudioRecorder(url: audioFile, settings: settings)
             recorder?.isMeteringEnabled = true
@@ -189,13 +262,13 @@ class VoiceRecorder: NSObject, ObservableObject {
                 recordingStartTime = Date()
                 isRecording = true
                 
-                startEnhancedMetering()
+                startOptimizedMetering()
                 startDurationTimer()
                 
-                print("🎤 ✅ Recording started successfully")
+                print("🎤 ✅ Recording started instantly")
                 
-                let feedback = UIImpactFeedbackGenerator(style: .medium)
-                feedback.impactOccurred()
+                // Prepare next audio file for future use
+                prepareNextAudioFile()
             } else {
                 print("❌ Failed to start recording")
                 resetRecordingState()
@@ -206,6 +279,49 @@ class VoiceRecorder: NSObject, ObservableObject {
             resetRecordingState()
             serverCheckFailed?("Recording setup failed: \(error.localizedDescription)")
         }
+    }
+    
+    private func createFallbackAudioFile() -> URL {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documentsPath.appendingPathComponent("recording_\(Int(Date().timeIntervalSince1970)).wav")
+    }
+    
+    private func prepareNextAudioFile() {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        preConfiguredAudioFile = documentsPath.appendingPathComponent("recording_\(Int(Date().timeIntervalSince1970 + 1)).wav")
+    }
+    
+    // MARK: - Optimized Metering
+    
+    private func startOptimizedMetering() {
+        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateOptimizedMeteringLevels()
+            }
+        }
+    }
+    
+    private func updateOptimizedMeteringLevels() {
+        guard isRecording, let recorder = recorder else { return }
+        
+        recorder.updateMeters()
+        let averagePower = recorder.averagePower(forChannel: 0)
+        let peakPower = recorder.peakPower(forChannel: 0)
+        
+        // Optimized normalization
+        let normalizedLevel = max(0.0, min(1.0, powf(10.0, averagePower / 20.0)))
+        let normalizedPeak = max(0.0, min(1.0, powf(10.0, peakPower / 20.0)))
+        
+        recordingLevel = normalizedLevel
+        peakLevel = max(peakLevel, normalizedPeak)
+        
+        // Efficient level history management
+        levelHistory.append(normalizedLevel)
+        if levelHistory.count > 50 { // Reduced from 100 for better performance
+            levelHistory.removeFirst()
+        }
+        
+        updateRecordingQuality(averagePower: averagePower)
     }
     
     func endRecording() {
@@ -242,6 +358,7 @@ class VoiceRecorder: NSObject, ObservableObject {
             return
         }
         
+        // Optimized file reading
         Task {
             do {
                 let data = try Data(contentsOf: audioFile)
@@ -262,7 +379,14 @@ class VoiceRecorder: NSObject, ObservableObject {
                     recordingCompleted?(data, metrics)
                 }
                 
+                // Cleanup in background
                 try? FileManager.default.removeItem(at: audioFile)
+                
+                // Prepare for next recording
+                await MainActor.run {
+                    prepareAudioRecording()
+                }
+                
             } catch {
                 print("❌ Failed to read recording: \(error)")
                 await MainActor.run {
@@ -282,7 +406,7 @@ class VoiceRecorder: NSObject, ObservableObject {
         recordingLevel = 0.0
         canFinishRecording = false
         
-        // Reset görsel feedback
+        // Reset visual feedback
         showWarningColor = false
         showDangerColor = false
         recordingProgress = 0.0
@@ -296,6 +420,7 @@ class VoiceRecorder: NSObject, ObservableObject {
         
         recorder?.stop()
         
+        // Quick restoration to playback mode
         do {
             try audioSession?.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         } catch {
@@ -314,7 +439,7 @@ class VoiceRecorder: NSObject, ObservableObject {
         recordingLevel = 0.0
         recordingStartTime = nil
         
-        // Reset görsel feedback
+        // Reset visual feedback
         showWarningColor = false
         showDangerColor = false
         recordingProgress = 0.0
@@ -325,14 +450,6 @@ class VoiceRecorder: NSObject, ObservableObject {
         meteringTimer = nil
         durationTimer?.invalidate()
         durationTimer = nil
-    }
-    
-    private func startEnhancedMetering() {
-        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateEnhancedMeteringLevels()
-            }
-        }
     }
     
     private func startDurationTimer() {
@@ -353,14 +470,13 @@ class VoiceRecorder: NSObject, ObservableObject {
                     
                     self.canFinishRecording = self.recordingDuration >= self.minimumRecordingDuration
                     
-                    // Görsel feedback güncellemeleri
+                    // Visual feedback updates
                     self.updateVisualFeedback()
                     
-                    // Maksimum süreye ulaşıldığında otomatik durdur
+                    // Auto-stop at maximum duration
                     if self.recordingDuration >= self.maximumRecordingDuration {
                         print("⏱️ Maximum recording duration reached - auto stopping")
                         
-                        // Hafif titreşim feedback
                         let feedback = UIImpactFeedbackGenerator(style: .heavy)
                         feedback.impactOccurred()
                         
@@ -373,19 +489,19 @@ class VoiceRecorder: NSObject, ObservableObject {
     }
     
     private func updateVisualFeedback() {
-        // Progress bar güncelleme
+        // Progress bar update
         recordingProgress = Float(recordingDuration / maximumRecordingDuration)
         
-        // Zaman formatları güncelleme
+        // Time formats update
         formattedElapsedTime = formatTime(recordingDuration)
         let remainingTime = max(0, maximumRecordingDuration - recordingDuration)
         formattedTimeRemaining = formatTime(remainingTime)
         
-        // Renk uyarıları
+        // Color warnings
         let remainingSeconds = maximumRecordingDuration - recordingDuration
         
         if remainingSeconds <= 5.0 {
-            // Son 5 saniye: Kırmızı + Titreşim
+            // Last 5 seconds: Red + Vibration
             if !showDangerColor {
                 showDangerColor = true
                 let feedback = UIImpactFeedbackGenerator(style: .light)
@@ -393,11 +509,11 @@ class VoiceRecorder: NSObject, ObservableObject {
             }
             showWarningColor = false
         } else if remainingSeconds <= 10.0 {
-            // Son 10 saniye: Sarı/Turuncu
+            // Last 10 seconds: Orange
             showWarningColor = true
             showDangerColor = false
         } else {
-            // Normal durum: Beyaz
+            // Normal: White
             showWarningColor = false
             showDangerColor = false
         }
@@ -407,27 +523,6 @@ class VoiceRecorder: NSObject, ObservableObject {
         let minutes = Int(timeInterval) / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%d:%02d", minutes, seconds)
-    }
-    
-    private func updateEnhancedMeteringLevels() {
-        guard isRecording, let recorder = recorder else { return }
-        
-        recorder.updateMeters()
-        let averagePower = recorder.averagePower(forChannel: 0)
-        let peakPower = recorder.peakPower(forChannel: 0)
-        
-        let normalizedLevel = max(0.0, min(1.0, powf(10.0, averagePower / 20.0)))
-        let normalizedPeak = max(0.0, min(1.0, powf(10.0, peakPower / 20.0)))
-        
-        recordingLevel = normalizedLevel
-        peakLevel = max(peakLevel, normalizedPeak)
-        levelHistory.append(normalizedLevel)
-        
-        if levelHistory.count > 100 {
-            levelHistory.removeFirst()
-        }
-        
-        updateRecordingQuality(averagePower: averagePower)
     }
     
     private func updateRecordingQuality(averagePower: Float) {
@@ -448,6 +543,9 @@ class VoiceRecorder: NSObject, ObservableObject {
         let permission = await AVAudioApplication.requestRecordPermission()
         await MainActor.run {
             microphonePermission = permission
+            if permission {
+                prepareAudioRecording()
+            }
         }
         return permission
     }
@@ -457,8 +555,10 @@ class VoiceRecorder: NSObject, ObservableObject {
             return "Microphone permission required"
         } else if isRecording {
             return "Recording \(formattedElapsedTime) / 2:00 • \(recordingQuality.description)"
+        } else if readyToRecord {
+            return "Ready to record instantly"
         } else {
-            return "Ready to record (max 2 min)"
+            return "Preparing..."
         }
     }
     
@@ -470,12 +570,10 @@ class VoiceRecorder: NSObject, ObservableObject {
         return recordingProgress
     }
     
-    // Yeni: Maximum süre display string
     var maxDurationDisplay: String {
         return "Max: 2:00"
     }
     
-    // Yeni: Time display with colors
     var timeDisplayString: String {
         return "\(formattedElapsedTime) / 2:00"
     }
