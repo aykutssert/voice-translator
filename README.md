@@ -15,9 +15,30 @@ A push-to-talk voice translation app built with SwiftUI that supports 50+ langua
 
 ## 📱 Screenshots
 
-| Home Screen | Recording | Translation Results | Language Selection | Premium Features |
-|-------------|-----------|-------------------|-------------------|------------------|
-| ![Home](images/1.jpeg) | ![Recording](images/2.jpeg) | ![Results](images/3.jpeg) | ![Languages](images/4.jpeg) | ![Premium](images/5.jpeg) |
+### Main Interface
+<img src="images/1.jpeg" alt="Main Interface" width="300">
+
+*Clean and intuitive interface with language selection and recording button*
+
+### Server Offline State
+<img src="images/2.jpeg" alt="Server Offline" width="300">
+
+*Smart connection monitoring with clear offline indicators*
+
+### Language Direction Selection
+<img src="images/3.jpeg" alt="Language Selection" width="300">
+
+*Easy language pair selection with recent combinations*
+
+### Source Language Selection
+<img src="images/4.jpeg" alt="Source Language" width="300">
+
+*Comprehensive list of 50+ supported languages*
+
+### Target Language Selection
+<img src="images/5.jpeg" alt="Target Language" width="300">
+
+*Quick target language selection with search functionality*
 
 ## 🚀 Tech Stack
 
